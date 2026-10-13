@@ -1,4 +1,4 @@
-# Notes vocales pour Obsidian
+# Vocaliz
 
 Une dictée intelligente pour Obsidian, pensée d'abord pour l'iPhone. Tu parles, et un texte propre apparaît là où se trouve ton curseur. Tu peux aussi demander un résumé au lieu du texte complet.
 
@@ -15,7 +15,7 @@ La transcription est faite par OpenAI (`gpt-4o-mini-transcribe`) et la réécrit
 | Tu as changé de note pendant le traitement | À la fin de la note où tu as commencé |
 | Aucune note n'est ouverte | Dans la note du jour, sous l'heure du vocal |
 
-L'audio est enregistré dans le coffre dès que tu arrêtes, puis **supprimé une fois le texte inséré**. En cas d'échec (pas de réseau, quota…), il reste dans `Notes vocales/En attente`. La commande **« Traiter les vocaux en attente »** le relance plus tard.
+L'audio est enregistré dans le coffre dès que tu arrêtes, puis **supprimé une fois le texte inséré**. En cas d'échec (pas de réseau, quota…), il reste dans `Vocaliz/En attente`. La commande **« Traiter les vocaux en attente »** le relance plus tard.
 
 ### Commandes vocales
 
@@ -36,8 +36,8 @@ Les énumérations et les changements de sujet sont aussi mis en forme automatiq
 
 1. Dans Obsidian : **Réglages → Modules complémentaires** → désactive le mode restreint si besoin.
 2. Installe le module **BRAT** (Obsidian42 - BRAT) depuis le catalogue, puis active-le.
-3. Réglages de BRAT → **Add Beta plugin** → colle l'adresse de ce dépôt GitHub → **Add Plugin**.
-4. Active **Notes vocales** dans la liste des modules.
+3. Réglages de BRAT → **Add Beta plugin** → colle `gendrom115/vocaliz` → **Add Plugin**.
+4. Active **Vocaliz** dans la liste des modules.
 5. Ouvre ses réglages et colle tes deux clés API :
    - OpenAI : https://platform.openai.com/api-keys
    - Anthropic : https://console.anthropic.com/settings/keys
@@ -49,12 +49,12 @@ La première dictée demande l'accès au micro. En cas de refus : **Réglages iP
 
 ## Lancer une dictée vite
 
-**Depuis Obsidian, dans la barre au-dessus du clavier :** Réglages → **Barre d'outils mobile** → ajoute « Notes vocales : Dictée propre » et « Notes vocales : Résumé vocal ». Un tap pour démarrer, un tap sur **Terminer** pour arrêter.
+**Depuis Obsidian, dans la barre au-dessus du clavier :** Réglages → **Barre d'outils mobile** → ajoute « Vocaliz : Dictée propre » et « Vocaliz : Résumé vocal ». Un tap pour démarrer, un tap sur **Terminer** pour arrêter.
 
 **Sans ouvrir Obsidian à la main (bouton Action, écran d'accueil, widget) :**
 
 1. App **Raccourcis** → nouveau raccourci → action **Ouvrir les URL**.
-2. URL : `obsidian://notes-vocales?mode=dictee` (ou `mode=resume`).
+2. URL : `obsidian://vocaliz?mode=dictee` (ou `mode=resume`).
 3. Réglages iPhone → **Bouton Action** → Raccourci → choisis-le. Tu peux aussi l'ajouter à l'écran d'accueil ou en widget.
 
 Obsidian s'ouvre et l'enregistrement démarre aussitôt. Sans note ouverte, le texte part dans la note du jour.

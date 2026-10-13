@@ -1,5 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
-import type NotesVocalesPlugin from "../main";
+import type VocalizPlugin from "../main";
 import { testAnthropic, testOpenAI } from "./api";
 import type { CleanupLevel, Mode, SummaryFormat } from "./prompts";
 
@@ -32,14 +32,14 @@ export const DEFAULT_SETTINGS: Settings = {
 	cleanupLevel: "moyen",
 	summaryFormat: "points",
 	vocabulary: "",
-	pendingFolder: "Notes vocales/En attente",
+	pendingFolder: "Vocaliz/En attente",
 	maxMinutes: 10,
 	openaiKeyFallback: "",
 	anthropicKeyFallback: "",
 	pending: [],
 };
 
-const SECRET_IDS = { openai: "notes-vocales-openai", anthropic: "notes-vocales-anthropic" } as const;
+const SECRET_IDS = { openai: "vocaliz-openai", anthropic: "vocaliz-anthropic" } as const;
 type KeyName = keyof typeof SECRET_IDS;
 
 /**
@@ -48,7 +48,7 @@ type KeyName = keyof typeof SECRET_IDS;
  * anciennes versions d'Obsidian.
  */
 export class Keys {
-	constructor(private app: App, private plugin: NotesVocalesPlugin) {}
+	constructor(private app: App, private plugin: VocalizPlugin) {}
 
 	private get store() {
 		return (this.app as App & { secretStorage?: App["secretStorage"] }).secretStorage;
@@ -87,8 +87,8 @@ export function vocabularyList(raw: string): string[] {
 		.filter(Boolean);
 }
 
-export class NotesVocalesSettingTab extends PluginSettingTab {
-	constructor(app: App, private plugin: NotesVocalesPlugin) {
+export class VocalizSettingTab extends PluginSettingTab {
+	constructor(app: App, private plugin: VocalizPlugin) {
 		super(app, plugin);
 	}
 
@@ -241,7 +241,7 @@ export class NotesVocalesSettingTab extends PluginSettingTab {
 		help.createEl("p", {
 			text: "Pour lancer une dictée sans ouvrir Obsidian à la main (bouton Action, Raccourcis, widget), utilise ces liens :",
 		});
-		for (const url of ["obsidian://notes-vocales?mode=dictee", "obsidian://notes-vocales?mode=resume"]) {
+		for (const url of ["obsidian://vocaliz?mode=dictee", "obsidian://vocaliz?mode=resume"]) {
 			const row = help.createDiv({ cls: "nv-url" });
 			row.createEl("code", { text: url });
 			const btn = row.createEl("button", { text: "Copier" });

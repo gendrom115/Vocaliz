@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-notes-vocales",
+  "name": "vocaliz",
   "version": "1.0.0",
   "description": "Plugin Obsidian : dictée intelligente et résumé de notes vocales",
   "main": "main.js",

@@ -41,7 +41,7 @@ async function send(params: Parameters<typeof requestUrl>[0] & object, service: 
 
 /** Corps multipart/form-data construit à la main (requestUrl n'accepte pas FormData). */
 function multipart(fields: Record<string, string>, file: { name: string; type: string; data: ArrayBuffer }) {
-	const boundary = "----notesvocales" + Math.random().toString(16).slice(2);
+	const boundary = "----vocaliz" + Math.random().toString(16).slice(2);
 	const enc = new TextEncoder();
 	const parts: Uint8Array[] = [];
 	for (const [key, value] of Object.entries(fields)) {

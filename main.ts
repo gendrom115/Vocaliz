@@ -2,7 +2,7 @@ import { Editor, MarkdownView, moment, normalizePath, Notice, Plugin, TFile, TFo
 import { ApiError, rewrite, transcribe } from "./src/api";
 import { Mode, SEPARATOR, systemPrompt, userMessage } from "./src/prompts";
 import { extensionFor, mimeForExtension, Recorder, RecordingBar } from "./src/recorder";
-import { DEFAULT_SETTINGS, Keys, NotesVocalesSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
+import { DEFAULT_SETTINGS, Keys, VocalizSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
 
 const MODE_LABEL: Record<Mode, string> = { dictee: "Dictée", resume: "Résumé" };
 
@@ -17,7 +17,7 @@ interface Session {
 	state: "recording" | "processing";
 }
 
-export default class NotesVocalesPlugin extends Plugin {
+export default class VocalizPlugin extends Plugin {
 	settings!: Settings;
 	keys!: Keys;
 	private session: Session | null = null;
@@ -26,7 +26,7 @@ export default class NotesVocalesPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.keys = new Keys(this.app, this);
-		this.addSettingTab(new NotesVocalesSettingTab(this.app, this));
+		this.addSettingTab(new VocalizSettingTab(this.app, this));
 
 		this.addCommand({
 			id: "dictee",
@@ -60,8 +60,8 @@ export default class NotesVocalesPlugin extends Plugin {
 		this.addRibbonIcon("mic", "Dictée propre", () => this.toggle("dictee"));
 		this.addRibbonIcon("list", "Résumé vocal", () => this.toggle("resume"));
 
-		// obsidian://notes-vocales?mode=dictee  (ou mode=resume) — pour le bouton Action / Raccourcis iOS.
-		this.registerObsidianProtocolHandler("notes-vocales", (params) => {
+		// obsidian://vocaliz?mode=dictee  (ou mode=resume) — pour le bouton Action / Raccourcis iOS.
+		this.registerObsidianProtocolHandler("vocaliz", (params) => {
 			const mode: Mode = params.mode === "resume" ? "resume" : "dictee";
 			this.app.workspace.onLayoutReady(() => this.toggle(mode));
 		});
@@ -71,7 +71,7 @@ export default class NotesVocalesPlugin extends Plugin {
 			const n = this.settings.pending.length;
 			if (n > 0) {
 				new Notice(
-					`Notes vocales : ${n} vocal${n > 1 ? "aux" : ""} en attente.\nCommande « Traiter les vocaux en attente ».`,
+					`Vocaliz : ${n} vocal${n > 1 ? "aux" : ""} en attente.\nCommande « Traiter les vocaux en attente ».`,
 					8000
 				);
 			}
@@ -104,7 +104,7 @@ export default class NotesVocalesPlugin extends Plugin {
 
 	private async start(mode: Mode) {
 		if (!this.keys.get("openai") || !this.keys.get("anthropic")) {
-			new Notice("Notes vocales : renseigne tes clés OpenAI et Anthropic dans les réglages du plugin.", 8000);
+			new Notice("Vocaliz : renseigne tes clés OpenAI et Anthropic dans les réglages du plugin.", 8000);
 			return;
 		}
 		// La note ouverte au moment où tu commences à parler. Aucune → note du jour.
@@ -164,7 +164,7 @@ export default class NotesVocalesPlugin extends Plugin {
 			const item = await this.savePending(blob, s.mode, s.targetPath);
 			await this.process(item, (status) => s.bar.setStatus(status));
 		} catch (e) {
-			new Notice(`Notes vocales : ${(e as Error).message}`, 10000);
+			new Notice(`Vocaliz : ${(e as Error).message}`, 10000);
 		} finally {
 			s.bar.remove();
 			this.session = null;
@@ -234,7 +234,7 @@ export default class NotesVocalesPlugin extends Plugin {
 				e instanceof ApiError && !e.retryable
 					? "Vérifie la clé dans les réglages, puis lance « Traiter les vocaux en attente »."
 					: "Le vocal est gardé : lance « Traiter les vocaux en attente » quand le réseau revient.";
-			new Notice(`Notes vocales — échec\n${msg}\n\n${hint}`, 12000);
+			new Notice(`Vocaliz — échec\n${msg}\n\n${hint}`, 12000);
 			return false;
 		}
 	}
