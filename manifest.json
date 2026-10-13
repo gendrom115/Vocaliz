@@ -1,0 +1,9 @@
+{
+  "id": "notes-vocales",
+  "name": "Notes vocales",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Dictée intelligente : enregistre ta voix, la transcrit et insère un texte propre (ou un résumé) là où se trouve ton curseur.",
+  "author": "gendrom-115",
+  "isDesktopOnly": false
+}
