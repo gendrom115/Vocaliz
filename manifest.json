@@ -1,7 +1,7 @@
 {
   "id": "vocaliz",
   "name": "Vocaliz",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "1.4.10",
   "description": "Dictée intelligente : enregistre ta voix, la transcrit et insère un texte propre (ou un résumé) là où se trouve ton curseur.",
   "author": "gendrom115",
