@@ -2,7 +2,7 @@ import { Editor, MarkdownView, moment, normalizePath, Notice, Plugin, TFile, TFo
 import { ApiError, rewrite, transcribe } from "./src/api";
 import { Mode, SEPARATOR, systemPrompt, userMessage } from "./src/prompts";
 import { extensionFor, mimeForExtension, Recorder, RecordingBar } from "./src/recorder";
-import { DEFAULT_SETTINGS, Keys, VocalizSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
+import { DEFAULT_NOTE_TEMPLATE, DEFAULT_SETTINGS, Keys, VocalizSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
 
 const MODE_LABEL: Record<Mode, string> = { dictee: "Dictée", resume: "Résumé" };
 
@@ -223,7 +223,7 @@ export default class VocalizPlugin extends Plugin {
 			});
 			const text = item.mode === "resume" ? formatSummary(output, transcript) : output || transcript;
 
-			await this.insert(item, text);
+			await this.insert(item, text, transcript);
 			await this.dropPending(item, true);
 			return true;
 		} catch (e) {
@@ -282,7 +282,10 @@ export default class VocalizPlugin extends Plugin {
 
 	// ─── Insertion ──────────────────────────────────────────────────────────
 
-	private async insert(item: PendingItem, text: string) {
+	private async insert(item: PendingItem, text: string, transcript: string) {
+		const dest = this.settings.destination;
+		if (dest === "note") return this.insertInNewNote(item, text, transcript);
+
 		// 1. La note de départ est toujours ouverte → au curseur, comme une dictée.
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (item.targetPath && view?.file?.path === item.targetPath) {
@@ -297,11 +300,52 @@ export default class VocalizPlugin extends Plugin {
 			new Notice(`Texte ajouté à la fin de « ${target.basename} »`, 3000);
 			return;
 		}
-		// 3. Aucune note ouverte au départ → note du jour, sous l'heure du vocal.
+		// 3. Aucune note ouverte au départ → nouvelle note, ou note du jour sous l'heure du vocal.
+		if (dest === "curseur-sinon-note") return this.insertInNewNote(item, text, transcript);
 		const daily = await this.dailyNote(item.createdAt);
 		const heading = `*${moment(item.createdAt).format("HH:mm")}* · ${MODE_LABEL[item.mode].toLowerCase()} vocale`;
 		await this.app.vault.process(daily, (data) => appendBlock(data, `${heading}\n${text}`));
 		new Notice(`Ajouté à la note du jour (${daily.basename})`, 3000);
+	}
+
+	/** Crée une note à partir du modèle choisi dans les réglages. */
+	private async insertInNewNote(item: PendingItem, text: string, transcript: string) {
+		const date = moment(item.createdAt);
+		const folder = normalizePath(this.settings.noteFolder || "/");
+		if (folder !== "/") await this.ensureFolder(folder);
+		const name = date.format(this.settings.noteNameFormat || DEFAULT_SETTINGS.noteNameFormat).replace(/[\\/:*?"<>|#^[\]]/g, "-");
+		const prefix = folder === "/" ? "" : `${folder}/`;
+		let path = normalizePath(`${prefix}${name}.md`);
+		for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) {
+			path = normalizePath(`${prefix}${name} (${i}).md`);
+		}
+
+		let template = DEFAULT_NOTE_TEMPLATE;
+		if (this.settings.noteTemplate) {
+			const tpl =
+				this.app.vault.getAbstractFileByPath(normalizePath(this.settings.noteTemplate)) ??
+				this.app.metadataCache.getFirstLinkpathDest(this.settings.noteTemplate.replace(/\.md$/, ""), "");
+			if (tpl instanceof TFile) template = await this.app.vault.read(tpl);
+			else new Notice(`Modèle « ${this.settings.noteTemplate} » introuvable, j'utilise le modèle par défaut.`, 6000);
+		}
+
+		const file = await this.app.vault.create(
+			path,
+			fillTemplate(template, {
+				contenu: text,
+				transcription: transcript,
+				date: date.format("YYYY-MM-DD"),
+				time: date.format("HH:mm"),
+				title: path.split("/").pop()!.replace(/\.md$/, ""),
+				mode: MODE_LABEL[item.mode],
+			})
+		);
+		if (this.settings.openNewNote) {
+			await this.app.workspace.getLeaf(false).openFile(file);
+			new Notice("Note créée", 1500);
+		} else {
+			new Notice(`Note créée : ${file.basename}`, 3000);
+		}
 	}
 
 	/** Note du jour selon les réglages du module « Notes quotidiennes » d'Obsidian. */
@@ -382,6 +426,19 @@ export function insertAtCursor(editor: Editor, text: string) {
 		if (after && !/^[\s.,;:!?)]/.test(after)) suffix = " ";
 	}
 	editor.replaceSelection(prefix + text + suffix);
+}
+
+/**
+ * Remplace les variables {{nom}} du modèle. Sans {{contenu}}, le texte est ajouté à la fin.
+ * Les remplacements se font en une passe : une dictée qui contient « {{date}} » reste telle quelle.
+ */
+export function fillTemplate(template: string, vars: Record<string, string>): string {
+	const hasContent = /{{\s*contenu\s*}}/i.test(template);
+	const filled = template.replace(/{{\s*(\w+)\s*}}/g, (match, key: string) => {
+		const k = key.toLowerCase();
+		return k in vars ? vars[k] : match;
+	});
+	return hasContent ? filled : appendBlock(filled, vars.contenu);
 }
 
 export function appendBlock(data: string, block: string): string {

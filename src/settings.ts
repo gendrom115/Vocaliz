@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { AbstractInputSuggest, App, moment, Notice, PluginSettingTab, Setting, TFile } from "obsidian";
 import type VocalizPlugin from "../main";
 import { testAnthropic, testOpenAI } from "./api";
 import type { CleanupLevel, Mode, SummaryFormat } from "./prompts";
@@ -12,7 +12,32 @@ export interface PendingItem {
 	lastError: string;
 }
 
+/**
+ * curseur : au curseur ; sans note ouverte, dans la note du jour (comportement d'origine).
+ * curseur-sinon-note : au curseur ; sans note ouverte, dans une nouvelle note.
+ * note : toujours dans une nouvelle note créée depuis le modèle.
+ */
+export type Destination = "curseur" | "curseur-sinon-note" | "note";
+
+/** Modèle utilisé quand aucun fichier modèle n'est choisi. */
+export const DEFAULT_NOTE_TEMPLATE = `---
+date: {{date}} {{time}}
+tags:
+  - vocal
+---
+{{contenu}}
+`;
+
 export interface Settings {
+	destination: Destination;
+	/** Dossier des notes créées. */
+	noteFolder: string;
+	/** Nom des notes créées, au format moment.js. */
+	noteNameFormat: string;
+	/** Chemin d'un fichier modèle du coffre ; vide = DEFAULT_NOTE_TEMPLATE. */
+	noteTemplate: string;
+	/** Ouvrir la note créée. */
+	openNewNote: boolean;
 	transcriptionModel: string;
 	claudeModel: string;
 	cleanupLevel: CleanupLevel;
@@ -27,6 +52,11 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+	destination: "curseur",
+	noteFolder: "Vocaliz",
+	noteNameFormat: "YYYY-MM-DD HHmm [Vocal]",
+	noteTemplate: "",
+	openNewNote: true,
 	transcriptionModel: "gpt-4o-mini-transcribe",
 	claudeModel: "claude-haiku-5-5",
 	cleanupLevel: "moyen",
@@ -143,6 +173,8 @@ export class VocalizSettingTab extends PluginSettingTab {
 				t.inputEl.addClass("nv-vocab");
 			});
 
+		this.destinationSettings(containerEl);
+
 		new Setting(containerEl).setName("Clés API").setHeading();
 
 		containerEl.createEl("p", {
@@ -252,6 +284,78 @@ export class VocalizSettingTab extends PluginSettingTab {
 		}
 	}
 
+	private destinationSettings(el: HTMLElement) {
+		const s = this.plugin.settings;
+		new Setting(el).setName("Destination").setHeading();
+
+		new Setting(el)
+			.setName("Où va le texte")
+			.setDesc("Une nouvelle note est créée à partir du modèle ci-dessous.")
+			.addDropdown((d) =>
+				d
+					.addOption("curseur", "Au curseur, sinon dans la note du jour")
+					.addOption("curseur-sinon-note", "Au curseur, sinon dans une nouvelle note")
+					.addOption("note", "Toujours dans une nouvelle note")
+					.setValue(s.destination)
+					.onChange(async (v) => {
+						s.destination = v as Destination;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (s.destination === "curseur") return;
+
+		new Setting(el)
+			.setName("Dossier des nouvelles notes")
+			.addText((t) =>
+				t.setPlaceholder(DEFAULT_SETTINGS.noteFolder).setValue(s.noteFolder).onChange(async (v) => {
+					s.noteFolder = v.trim().replace(/\/+$/, "");
+					await this.plugin.saveSettings();
+				})
+			);
+
+		const nameSetting = new Setting(el).setName("Nom des nouvelles notes");
+		const preview = () =>
+			nameSetting.setDesc(`Format de date moment.js, texte fixe entre crochets. Exemple : ${moment().format(s.noteNameFormat || DEFAULT_SETTINGS.noteNameFormat)}`);
+		preview();
+		nameSetting.addText((t) =>
+			t.setPlaceholder(DEFAULT_SETTINGS.noteNameFormat).setValue(s.noteNameFormat).onChange(async (v) => {
+				s.noteNameFormat = v.trim() || DEFAULT_SETTINGS.noteNameFormat;
+				preview();
+				await this.plugin.saveSettings();
+			})
+		);
+
+		new Setting(el)
+			.setName("Fichier modèle")
+			.setDesc(
+				"Une note de ton coffre. Variables : {{contenu}} (le texte), {{transcription}} (le texte brut), {{date}}, {{time}}, {{title}}, {{mode}}. Sans {{contenu}}, le texte est ajouté à la fin. Vide : un modèle simple avec la date et le tag #vocal."
+			)
+			.addSearch((t) => {
+				t.setPlaceholder("Modèles/Vocal.md")
+					.setValue(s.noteTemplate)
+					.onChange(async (v) => {
+						s.noteTemplate = v.trim();
+						await this.plugin.saveSettings();
+					});
+				new MarkdownFileSuggest(this.app, t.inputEl, async (path) => {
+					t.setValue(path);
+					s.noteTemplate = path;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(el)
+			.setName("Ouvrir la note créée")
+			.addToggle((t) =>
+				t.setValue(s.openNewNote).onChange(async (v) => {
+					s.openNewNote = v;
+					await this.plugin.saveSettings();
+				})
+			);
+	}
+
 	private keySetting(el: HTMLElement, name: "openai" | "anthropic", label: string, desc: string, placeholder: string) {
 		new Setting(el)
 			.setName(label)
@@ -265,5 +369,29 @@ export class VocalizSettingTab extends PluginSettingTab {
 						await this.plugin.keys.set(name, v);
 					});
 			});
+	}
+}
+
+/** Propose les notes du coffre pendant la saisie du fichier modèle. */
+class MarkdownFileSuggest extends AbstractInputSuggest<TFile> {
+	constructor(app: App, private input: HTMLInputElement, private onPick: (path: string) => void) {
+		super(app, input);
+	}
+
+	getSuggestions(query: string): TFile[] {
+		const q = query.toLowerCase();
+		return this.app.vault
+			.getMarkdownFiles()
+			.filter((f) => f.path.toLowerCase().includes(q))
+			.slice(0, 20);
+	}
+
+	renderSuggestion(file: TFile, el: HTMLElement): void {
+		el.setText(file.path);
+	}
+
+	selectSuggestion(file: TFile): void {
+		this.onPick(file.path);
+		this.close();
 	}
 }
