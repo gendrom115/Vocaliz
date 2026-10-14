@@ -75,7 +75,7 @@ Obsidian s'ouvre et l'enregistrement démarre aussitôt. Sans note ouverte, le t
 
 ### Modèle de note
 
-Quand le texte va dans une nouvelle note, elle est créée à partir du fichier modèle. Variables disponibles :
+Quand le texte va dans une nouvelle note, elle est créée à partir du fichier modèle dès que tu lances l'enregistrement, et s'ouvre. Le texte s'insère à la place de `{{contenu}}` une fois le vocal traité. Si tu annules, la note est supprimée, sauf si tu y as écrit entre-temps. Variables disponibles :
 `{{contenu}}` (le texte mis au propre ou le résumé), `{{transcription}}` (le texte brut), `{{date}}`, `{{time}}`, `{{title}}` (nom de la note) et `{{mode}}`.
 Sans `{{contenu}}` dans le modèle, le texte est ajouté à la fin.
 

@@ -290,7 +290,7 @@ export class VocalizSettingTab extends PluginSettingTab {
 
 		new Setting(el)
 			.setName("Où va le texte")
-			.setDesc("Une nouvelle note est créée à partir du modèle ci-dessous.")
+			.setDesc("La nouvelle note est créée dès que tu lances l'enregistrement, à partir du modèle ci-dessous, et le texte s'y insère à la fin.")
 			.addDropdown((d) =>
 				d
 					.addOption("curseur", "Au curseur, sinon dans la note du jour")
