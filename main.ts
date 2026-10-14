@@ -2,9 +2,13 @@ import { Editor, MarkdownView, moment, normalizePath, Notice, Plugin, TFile, TFo
 import { ApiError, rewrite, transcribe } from "./src/api";
 import { Mode, SEPARATOR, systemPrompt, userMessage } from "./src/prompts";
 import { extensionFor, mimeForExtension, Recorder, RecordingBar } from "./src/recorder";
-import { DEFAULT_SETTINGS, Keys, VocalizSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
+import { DEFAULT_NOTE_TEMPLATE, DEFAULT_SETTINGS, Keys, VocalizSettingTab, PendingItem, Settings, vocabularyList } from "./src/settings";
 
 const MODE_LABEL: Record<Mode, string> = { dictee: "Dictée", resume: "Résumé" };
+
+/** Emplacements réservés dans une note créée au démarrage, remplis à la fin du traitement. */
+const CONTENT_MARK = "%%vocaliz:contenu%%";
+const TRANSCRIPT_MARK = "%%vocaliz:transcription%%";
 
 /** En dessous, on considère que c'est un appui accidentel. */
 const MIN_SECONDS = 0.8;
@@ -14,6 +18,8 @@ interface Session {
 	recorder: Recorder;
 	bar: RecordingBar;
 	targetPath: string;
+	/** Note créée au démarrage depuis le modèle, avec son contenu d'origine. */
+	createdNote: { path: string; initial: string } | null;
 	state: "recording" | "processing";
 }
 
@@ -107,8 +113,8 @@ export default class VocalizPlugin extends Plugin {
 			new Notice("Vocaliz : renseigne tes clés OpenAI et Anthropic dans les réglages du plugin.", 8000);
 			return;
 		}
-		// La note ouverte au moment où tu commences à parler. Aucune → note du jour.
-		const targetPath = this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path ?? "";
+		// La note ouverte au moment où tu commences à parler. Aucune → note du jour ou nouvelle note.
+		let targetPath = this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path ?? "";
 
 		const recorder = new Recorder();
 		try {
@@ -125,12 +131,27 @@ export default class VocalizPlugin extends Plugin {
 			return;
 		}
 
+		// Nouvelle note depuis le modèle, créée dès le début de l'enregistrement.
+		const dest = this.settings.destination;
+		let createdNote: Session["createdNote"] = null;
+		if (dest === "note" || (dest === "curseur-sinon-note" && !targetPath)) {
+			try {
+				const file = await this.createNoteFromTemplate(Date.now(), mode);
+				createdNote = { path: file.path, initial: await this.app.vault.read(file) };
+				targetPath = file.path;
+			} catch (e) {
+				recorder.cancel();
+				new Notice(`Vocaliz : impossible de créer la note. ${(e as Error).message}`, 8000);
+				return;
+			}
+		}
+
 		const bar = new RecordingBar(
 			MODE_LABEL[mode],
 			() => this.finish(),
 			() => this.cancel()
 		);
-		this.session = { mode, recorder, bar, targetPath, state: "recording" };
+		this.session = { mode, recorder, bar, targetPath, createdNote, state: "recording" };
 		bar.startTimer(this.settings.maxMinutes * 60, () => {
 			new Notice("Durée maximale atteinte, je traite le vocal.");
 			this.finish();
@@ -143,6 +164,7 @@ export default class VocalizPlugin extends Plugin {
 		s.recorder.cancel();
 		s.bar.remove();
 		this.session = null;
+		void this.discardCreatedNote(s.createdNote);
 		new Notice("Enregistrement annulé");
 	}
 
@@ -157,6 +179,7 @@ export default class VocalizPlugin extends Plugin {
 			const blob = await s.recorder.stop();
 			if (seconds < MIN_SECONDS || blob.size < 1000) {
 				new Notice("Vocal trop court, rien n'a été inséré.");
+				await this.discardCreatedNote(s.createdNote);
 				return;
 			}
 			// L'audio est d'abord écrit dans le coffre : si l'appli est fermée ou le réseau coupe,
@@ -210,6 +233,7 @@ export default class VocalizPlugin extends Plugin {
 			});
 			if (!transcript) {
 				new Notice("Rien entendu dans ce vocal.");
+				await this.clearMarks(item.targetPath);
 				await this.dropPending(item, true);
 				return true;
 			}
@@ -223,7 +247,7 @@ export default class VocalizPlugin extends Plugin {
 			});
 			const text = item.mode === "resume" ? formatSummary(output, transcript) : output || transcript;
 
-			await this.insert(item, text);
+			await this.insert(item, text, transcript);
 			await this.dropPending(item, true);
 			return true;
 		} catch (e) {
@@ -282,26 +306,91 @@ export default class VocalizPlugin extends Plugin {
 
 	// ─── Insertion ──────────────────────────────────────────────────────────
 
-	private async insert(item: PendingItem, text: string) {
-		// 1. La note de départ est toujours ouverte → au curseur, comme une dictée.
+	private async insert(item: PendingItem, text: string, transcript: string) {
+		const target = item.targetPath ? this.app.vault.getAbstractFileByPath(item.targetPath) : null;
+
+		// 1. Note créée depuis le modèle au démarrage → à l'emplacement prévu.
+		if (target instanceof TFile && (await this.app.vault.read(target)).includes(CONTENT_MARK)) {
+			await this.app.vault.process(target, (data) => fillMarks(data, text, transcript));
+			new Notice("Texte inséré", 1500);
+			return;
+		}
+		// 2. La note de départ est toujours ouverte → au curseur, comme une dictée.
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (item.targetPath && view?.file?.path === item.targetPath) {
+		if (target instanceof TFile && view?.file?.path === target.path) {
 			insertAtCursor(view.editor, text);
 			new Notice("Texte inséré", 1500);
 			return;
 		}
-		// 2. Tu as changé de note entre-temps → à la fin de la note de départ.
-		const target = item.targetPath ? this.app.vault.getAbstractFileByPath(item.targetPath) : null;
+		// 3. Tu as changé de note entre-temps → à la fin de la note de départ.
 		if (target instanceof TFile) {
 			await this.app.vault.process(target, (data) => appendBlock(data, text));
 			new Notice(`Texte ajouté à la fin de « ${target.basename} »`, 3000);
 			return;
 		}
-		// 3. Aucune note ouverte au départ → note du jour, sous l'heure du vocal.
+		// 4. Pas (ou plus) de note → nouvelle note depuis le modèle, ou note du jour sous l'heure du vocal.
+		if (this.settings.destination !== "curseur") {
+			const file = await this.createNoteFromTemplate(item.createdAt, item.mode);
+			await this.app.vault.process(file, (data) => fillMarks(data, text, transcript));
+			return;
+		}
 		const daily = await this.dailyNote(item.createdAt);
 		const heading = `*${moment(item.createdAt).format("HH:mm")}* · ${MODE_LABEL[item.mode].toLowerCase()} vocale`;
 		await this.app.vault.process(daily, (data) => appendBlock(data, `${heading}\n${text}`));
 		new Notice(`Ajouté à la note du jour (${daily.basename})`, 3000);
+	}
+
+	/**
+	 * Crée une note à partir du modèle choisi dans les réglages. Le texte n'existe pas encore :
+	 * {{contenu}} et {{transcription}} deviennent des emplacements réservés, remplis plus tard.
+	 */
+	private async createNoteFromTemplate(timestamp: number, mode: Mode): Promise<TFile> {
+		const date = moment(timestamp);
+		const folder = normalizePath(this.settings.noteFolder || "/");
+		if (folder !== "/") await this.ensureFolder(folder);
+		const name = date.format(this.settings.noteNameFormat || DEFAULT_SETTINGS.noteNameFormat).replace(/[\\/:*?"<>|#^[\]]/g, "-");
+		const prefix = folder === "/" ? "" : `${folder}/`;
+		let path = normalizePath(`${prefix}${name}.md`);
+		for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) {
+			path = normalizePath(`${prefix}${name} (${i}).md`);
+		}
+
+		let template = DEFAULT_NOTE_TEMPLATE;
+		if (this.settings.noteTemplate) {
+			const tpl =
+				this.app.vault.getAbstractFileByPath(normalizePath(this.settings.noteTemplate)) ??
+				this.app.metadataCache.getFirstLinkpathDest(this.settings.noteTemplate.replace(/\.md$/, ""), "");
+			if (tpl instanceof TFile) template = await this.app.vault.read(tpl);
+			else new Notice(`Modèle « ${this.settings.noteTemplate} » introuvable, j'utilise le modèle par défaut.`, 6000);
+		}
+
+		const file = await this.app.vault.create(
+			path,
+			fillTemplate(template, {
+				contenu: CONTENT_MARK,
+				transcription: TRANSCRIPT_MARK,
+				date: date.format("YYYY-MM-DD"),
+				time: date.format("HH:mm"),
+				title: path.split("/").pop()!.replace(/\.md$/, ""),
+				mode: MODE_LABEL[mode],
+			})
+		);
+		if (this.settings.openNewNote) await this.app.workspace.getLeaf(false).openFile(file);
+		return file;
+	}
+
+	/** Enregistrement annulé ou trop court : la note créée est supprimée si tu n'y as rien écrit. */
+	private async discardCreatedNote(note: Session["createdNote"]) {
+		if (!note) return;
+		const file = this.app.vault.getAbstractFileByPath(note.path);
+		if (!(file instanceof TFile)) return;
+		if ((await this.app.vault.read(file)) === note.initial) await this.app.vault.delete(file);
+		else await this.clearMarks(note.path);
+	}
+
+	private async clearMarks(path: string) {
+		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+		if (file instanceof TFile) await this.app.vault.process(file, (data) => fillMarks(data, "", ""));
 	}
 
 	/** Note du jour selon les réglages du module « Notes quotidiennes » d'Obsidian. */
@@ -382,6 +471,25 @@ export function insertAtCursor(editor: Editor, text: string) {
 		if (after && !/^[\s.,;:!?)]/.test(after)) suffix = " ";
 	}
 	editor.replaceSelection(prefix + text + suffix);
+}
+
+/** Remplit les emplacements réservés d'une note créée au démarrage. */
+export function fillMarks(data: string, text: string, transcript: string): string {
+	const filled = data.split(CONTENT_MARK).join(text).split(TRANSCRIPT_MARK).join(transcript);
+	return text ? filled : filled.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Remplace les variables {{nom}} du modèle. Sans {{contenu}}, le texte est ajouté à la fin.
+ * Les remplacements se font en une passe : une dictée qui contient « {{date}} » reste telle quelle.
+ */
+export function fillTemplate(template: string, vars: Record<string, string>): string {
+	const hasContent = /{{\s*contenu\s*}}/i.test(template);
+	const filled = template.replace(/{{\s*(\w+)\s*}}/g, (match, key: string) => {
+		const k = key.toLowerCase();
+		return k in vars ? vars[k] : match;
+	});
+	return hasContent ? filled : appendBlock(filled, vars.contenu);
 }
 
 export function appendBlock(data: string, block: string): string {

@@ -66,9 +66,27 @@ Obsidian s'ouvre et l'enregistrement démarre aussitôt. Sans note ouverte, le t
 | Niveau de nettoyage | Moyen | Moyen : tes mots remis au propre. Fort : réécrit en style écrit, plus concis. |
 | Format du résumé | Points clés | Résumé court, points clés ou actions à faire |
 | Vocabulaire perso | vide | Noms, sigles, termes métier toujours bien orthographiés |
+| Où va le texte | Au curseur, sinon note du jour | Ou : au curseur sinon nouvelle note ; ou toujours une nouvelle note |
+| Dossier / nom des nouvelles notes | `Vocaliz`, `YYYY-MM-DD HHmm Vocal` | Format de date moment.js |
+| Fichier modèle | vide (date + tag #vocal) | Une note de ton coffre, voir ci-dessous |
 | Modèle de transcription | gpt-4o-mini-transcribe | `gpt-4o-transcribe` est un peu plus précis |
 | Modèle Claude | claude-haiku-5-5 | `claude-sonnet-5-5` réécrit mieux mais un peu plus lentement |
 | Durée maximale | 10 min | Arrêt automatique au-delà |
+
+### Modèle de note
+
+Quand le texte va dans une nouvelle note, elle est créée à partir du fichier modèle dès que tu lances l'enregistrement, et s'ouvre. Le texte s'insère à la place de `{{contenu}}` une fois le vocal traité. Si tu annules, la note est supprimée, sauf si tu y as écrit entre-temps. Variables disponibles :
+`{{contenu}}` (le texte mis au propre ou le résumé), `{{transcription}}` (le texte brut), `{{date}}`, `{{time}}`, `{{title}}` (nom de la note) et `{{mode}}`.
+Sans `{{contenu}}` dans le modèle, le texte est ajouté à la fin.
+
+```markdown
+---
+date: {{date}} {{time}}
+tags:
+  - vocal
+---
+{{contenu}}
+```
 
 ## Limites
 
